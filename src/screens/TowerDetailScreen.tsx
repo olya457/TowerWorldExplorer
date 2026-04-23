@@ -152,6 +152,7 @@ const TowerDetailScreen = () => {
                     coordinate={{ latitude: s.latitude, longitude: s.longitude }}
                     title={s.name}
                     description={s.location}
+                    pinColor={colors.accent}
                   />
                 </MapView>
               </View>

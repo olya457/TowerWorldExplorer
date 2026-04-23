@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   Dimensions,
   Image,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -128,6 +129,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: Platform.OS === 'android' ? -30 : 0,
   },
   image: {
     width: width * 0.72,

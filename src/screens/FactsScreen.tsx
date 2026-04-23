@@ -11,7 +11,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import BackgroundWrapper from '../components/BackgroundWrapper';
 import SafePadding from '../components/SafePadding';
 import FilterChips from '../components/FilterChips';
-import RandomButton from '../components/RandomButton';
+
 import { facts } from '../data/facts';
 import { FactItem } from '../types/navigation';
 import { colors } from '../theme/colors';
@@ -70,9 +70,7 @@ const FactsScreen = () => {
 
         <FilterChips items={factCategories} active={filter} onChange={setFilter} />
 
-        <View style={styles.randomWrap}>
-          <RandomButton label="Random Fact" onPress={openRandom} />
-        </View>
+     
 
         <FlatList
           data={items}

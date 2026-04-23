@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Image,
   Modal,
@@ -18,34 +18,166 @@ import MapView, {
 } from 'react-native-maps';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { structures } from '../data/structures';
 import { RootStackParamList, Structure } from '../types/navigation';
 import { colors } from '../theme/colors';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePersistentAndroidInsets } from '../hooks/usePersistentInsets';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-const INITIAL_REGION: Region = {
-  latitude: 25,
-  longitude: 20,
-  latitudeDelta: 120,
-  longitudeDelta: 120,
+type MapPoint = {
+  id: string;
+  name: string;
+  location: string;
+  latitude: number;
+  longitude: number;
+  image: any;
+  height: number;
+  floors?: number;
+  year: number;
+  description: string;
+  raw: Structure;
+};
+
+const FALLBACK_REGION: Region = {
+  latitude: 48.8566,
+  longitude: 2.3522,
+  latitudeDelta: 35,
+  longitudeDelta: 35,
 };
 
 const MapScreen = () => {
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
   const androidInsets = usePersistentAndroidInsets();
-  const [selected, setSelected] = useState<Structure | null>(null);
+
   const mapRef = useRef<MapView | null>(null);
-  const regionRef = useRef<Region>(INITIAL_REGION);
+  const regionRef = useRef<Region>(FALLBACK_REGION);
+  const mapReadyRef = useRef(false);
+  const layoutReadyRef = useRef(false);
+  const didInitialFitRef = useRef(false);
+
+  const [selected, setSelected] = useState<Structure | null>(null);
+
   const topOffset = Platform.OS === 'android' ? androidInsets.top : insets.top;
+
+  const validStructures = useMemo<MapPoint[]>(() => {
+    return structures
+      .map(item => {
+        const latitude = Number((item as any).latitude);
+        const longitude = Number((item as any).longitude);
+
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          return null;
+        }
+
+        return {
+          id: String(item.id),
+          name: item.name,
+          location: item.location,
+          latitude,
+          longitude,
+          image: item.image,
+          height: item.height,
+          floors: item.floors,
+          year: item.year,
+          description: item.description,
+          raw: item,
+        };
+      })
+      .filter(Boolean) as MapPoint[];
+  }, []);
+
+  const initialRegion = useMemo<Region>(() => {
+    if (validStructures.length === 0) {
+      return FALLBACK_REGION;
+    }
+
+    if (validStructures.length === 1) {
+      return {
+        latitude: validStructures[0].latitude,
+        longitude: validStructures[0].longitude,
+        latitudeDelta: 0.25,
+        longitudeDelta: 0.25,
+      };
+    }
+
+    const first = validStructures[0];
+
+    return {
+      latitude: first.latitude,
+      longitude: first.longitude,
+      latitudeDelta: 35,
+      longitudeDelta: 35,
+    };
+  }, [validStructures]);
+
+  const onRegionChangeComplete = (region: Region) => {
+    regionRef.current = region;
+  };
+
+  const fitAll = (animated = true) => {
+    if (!mapRef.current || validStructures.length === 0) {
+      return;
+    }
+
+    if (validStructures.length === 1) {
+      const only = validStructures[0];
+      const nextRegion: Region = {
+        latitude: only.latitude,
+        longitude: only.longitude,
+        latitudeDelta: 0.25,
+        longitudeDelta: 0.25,
+      };
+      regionRef.current = nextRegion;
+      mapRef.current.animateToRegion(nextRegion, animated ? 500 : 0);
+      return;
+    }
+
+    mapRef.current.fitToCoordinates(
+      validStructures.map(item => ({
+        latitude: item.latitude,
+        longitude: item.longitude,
+      })),
+      {
+        edgePadding: { top: 140, right: 80, bottom: 220, left: 80 },
+        animated,
+      },
+    );
+  };
+
+  const tryInitialFit = () => {
+    if (didInitialFitRef.current) {
+      return;
+    }
+
+    if (!mapReadyRef.current || !layoutReadyRef.current) {
+      return;
+    }
+
+    didInitialFitRef.current = true;
+
+    setTimeout(() => {
+      fitAll(true);
+    }, Platform.OS === 'android' ? 1000 : 300);
+  };
+
+  const onMapReady = () => {
+    mapReadyRef.current = true;
+    tryInitialFit();
+  };
+
+  const onMapLayout = () => {
+    layoutReadyRef.current = true;
+    tryInitialFit();
+  };
 
   const share = async () => {
     if (!selected) {
       return;
     }
+
     try {
       await Share.share({
         message: `${selected.name} — ${selected.location}. Height: ${selected.height}m. Built in ${selected.year}.`,
@@ -57,13 +189,10 @@ const MapScreen = () => {
     if (!selected) {
       return;
     }
+
     const id = selected.id;
     setSelected(null);
     navigation.navigate('TowerDetail', { structureId: id });
-  };
-
-  const onRegionChange = (region: Region) => {
-    regionRef.current = region;
   };
 
   const zoomIn = () => {
@@ -91,18 +220,16 @@ const MapScreen = () => {
   };
 
   const resetView = () => {
-    regionRef.current = INITIAL_REGION;
-    mapRef.current?.animateToRegion(INITIAL_REGION, 500);
-  };
+    didInitialFitRef.current = false;
+    mapReadyRef.current = true;
+    layoutReadyRef.current = true;
+    regionRef.current = initialRegion;
+    mapRef.current?.animateToRegion(initialRegion, 400);
 
-  const fitAll = () => {
-    mapRef.current?.fitToCoordinates(
-      structures.map(s => ({ latitude: s.latitude, longitude: s.longitude })),
-      {
-        edgePadding: { top: 120, right: 80, bottom: 220, left: 80 },
-        animated: true,
-      },
-    );
+    setTimeout(() => {
+      fitAll(true);
+      didInitialFitRef.current = true;
+    }, Platform.OS === 'android' ? 900 : 250);
   };
 
   return (
@@ -111,15 +238,24 @@ const MapScreen = () => {
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
-        initialRegion={INITIAL_REGION}
-        onRegionChangeComplete={onRegionChange}>
-        {structures.map(item => (
+        initialRegion={initialRegion}
+        moveOnMarkerPress={false}
+        toolbarEnabled={false}
+        loadingEnabled
+        onMapReady={onMapReady}
+        onLayout={onMapLayout}
+        onRegionChangeComplete={onRegionChangeComplete}>
+        {validStructures.map(item => (
           <Marker
             key={item.id}
-            coordinate={{ latitude: item.latitude, longitude: item.longitude }}
+            identifier={item.id}
+            coordinate={{
+              latitude: item.latitude,
+              longitude: item.longitude,
+            }}
             title={item.name}
             description={item.location}
-            onPress={() => setSelected(item)}
+            onPress={() => setSelected(item.raw)}
           />
         ))}
       </MapView>
@@ -133,16 +269,19 @@ const MapScreen = () => {
 
       <View style={styles.controls} pointerEvents="box-none">
         <TouchableOpacity activeOpacity={0.8} onPress={zoomIn} style={styles.ctrlBtn}>
-          <Text style={styles.ctrlText}>{'\uFF0B'}</Text>
+          <Text style={styles.ctrlText}>＋</Text>
         </TouchableOpacity>
+
         <TouchableOpacity activeOpacity={0.8} onPress={zoomOut} style={styles.ctrlBtn}>
-          <Text style={styles.ctrlText}>{'\u2212'}</Text>
+          <Text style={styles.ctrlText}>−</Text>
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.8} onPress={fitAll} style={styles.ctrlBtn}>
-          <Text style={styles.ctrlIconSmall}>{'\u2922'}</Text>
+
+        <TouchableOpacity activeOpacity={0.8} onPress={() => fitAll(true)} style={styles.ctrlBtn}>
+          <Text style={styles.ctrlIconSmall}>⤢</Text>
         </TouchableOpacity>
+
         <TouchableOpacity activeOpacity={0.8} onPress={resetView} style={styles.ctrlBtn}>
-          <Text style={styles.ctrlIconSmall}>{'\uD83C\uDF0D'}</Text>
+          <Text style={styles.ctrlIconSmall}>🌍</Text>
         </TouchableOpacity>
       </View>
 
@@ -156,23 +295,28 @@ const MapScreen = () => {
             {selected ? (
               <View style={styles.card}>
                 <Image source={selected.image} style={styles.cardImage} resizeMode="cover" />
+
                 <TouchableOpacity
                   style={styles.closeBtn}
                   onPress={() => setSelected(null)}
                   activeOpacity={0.8}>
-                  <Text style={styles.closeText}>{'\u2715'}</Text>
+                  <Text style={styles.closeText}>✕</Text>
                 </TouchableOpacity>
+
                 <View style={styles.cardBody}>
                   <Text style={styles.cardTitle}>{selected.name}</Text>
                   <Text style={styles.cardLocation}>{selected.location}</Text>
+
                   <Text style={styles.cardMeta}>
                     {selected.height}m
-                    {selected.floors ? `  \u2022  ${selected.floors} floors` : ''}
-                    {`  \u2022  ${selected.year}`}
+                    {selected.floors ? `  •  ${selected.floors} floors` : ''}
+                    {`  •  ${selected.year}`}
                   </Text>
+
                   <Text style={styles.cardDesc} numberOfLines={4}>
                     {selected.description}
                   </Text>
+
                   <View style={styles.actionRow}>
                     <TouchableOpacity
                       activeOpacity={0.9}
@@ -180,11 +324,12 @@ const MapScreen = () => {
                       style={styles.primaryBtn}>
                       <Text style={styles.primaryBtnText}>Open details</Text>
                     </TouchableOpacity>
+
                     <TouchableOpacity
                       activeOpacity={0.9}
                       onPress={share}
                       style={styles.secondaryBtn}>
-                      <Text style={styles.secondaryBtnText}>{'\u27A4'}</Text>
+                      <Text style={styles.secondaryBtnText}>➤</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

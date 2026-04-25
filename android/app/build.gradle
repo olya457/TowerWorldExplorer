@@ -95,7 +95,6 @@ android {
             }
         }
     }
-    bui
     buildTypes {
 
         release {

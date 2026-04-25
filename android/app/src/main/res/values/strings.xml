@@ -1,4 +1,3 @@
 <resources>
-    <string name="app_name">TowerWorldExplorer</string>
-    <string name="google_maps_api_key" translatable="false">AIzaSyBO9Q2yXbXH108vm3B7u_7Gn-2PL-TFGfo</string>
+    <string name="app_name">Tower World Explorer</string>
 </resources>

@@ -1,4 +1,4 @@
-package com.towerworldexplorer
+package com.tower.world.explorer
 
 import android.app.Application
 import com.facebook.react.PackageList

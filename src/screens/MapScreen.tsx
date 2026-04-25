@@ -16,7 +16,7 @@ import MapView, {
   PROVIDER_GOOGLE,
   Region,
 } from 'react-native-maps';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { structures } from '../data/structures';
@@ -59,6 +59,7 @@ const MapScreen = () => {
   const didInitialFitRef = useRef(false);
 
   const [selected, setSelected] = useState<Structure | null>(null);
+  const [androidMapKey, setAndroidMapKey] = useState(0);
 
   const topOffset = Platform.OS === 'android' ? androidInsets.top : insets.top;
 
@@ -103,13 +104,16 @@ const MapScreen = () => {
       };
     }
 
-    const first = validStructures[0];
+    const minLat = Math.min(...validStructures.map(item => item.latitude));
+    const maxLat = Math.max(...validStructures.map(item => item.latitude));
+    const minLng = Math.min(...validStructures.map(item => item.longitude));
+    const maxLng = Math.max(...validStructures.map(item => item.longitude));
 
     return {
-      latitude: first.latitude,
-      longitude: first.longitude,
-      latitudeDelta: 35,
-      longitudeDelta: 35,
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max(maxLat - minLat + 25, 20),
+      longitudeDelta: Math.max(maxLng - minLng + 25, 20),
     };
   }, [validStructures]);
 
@@ -124,12 +128,14 @@ const MapScreen = () => {
 
     if (validStructures.length === 1) {
       const only = validStructures[0];
+
       const nextRegion: Region = {
         latitude: only.latitude,
         longitude: only.longitude,
         latitudeDelta: 0.25,
         longitudeDelta: 0.25,
       };
+
       regionRef.current = nextRegion;
       mapRef.current.animateToRegion(nextRegion, animated ? 500 : 0);
       return;
@@ -141,7 +147,10 @@ const MapScreen = () => {
         longitude: item.longitude,
       })),
       {
-        edgePadding: { top: 140, right: 80, bottom: 220, left: 80 },
+        edgePadding:
+          Platform.OS === 'android'
+            ? { top: 180, right: 100, bottom: 260, left: 100 }
+            : { top: 140, right: 80, bottom: 220, left: 80 },
         animated,
       },
     );
@@ -158,9 +167,21 @@ const MapScreen = () => {
 
     didInitialFitRef.current = true;
 
+    if (Platform.OS === 'android') {
+      setTimeout(() => {
+        mapRef.current?.animateToRegion(initialRegion, 0);
+      }, 300);
+
+      setTimeout(() => {
+        fitAll(false);
+      }, 1200);
+
+      return;
+    }
+
     setTimeout(() => {
       fitAll(true);
-    }, Platform.OS === 'android' ? 1000 : 300);
+    }, 300);
   };
 
   const onMapReady = () => {
@@ -172,6 +193,20 @@ const MapScreen = () => {
     layoutReadyRef.current = true;
     tryInitialFit();
   };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS !== 'android') {
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        fitAll(false);
+      }, 700);
+
+      return () => clearTimeout(timer);
+    }, [validStructures.length]),
+  );
 
   const share = async () => {
     if (!selected) {
@@ -197,54 +232,74 @@ const MapScreen = () => {
 
   const zoomIn = () => {
     const r = regionRef.current;
-    const next: Region = {
+
+    const nextRegion: Region = {
       latitude: r.latitude,
       longitude: r.longitude,
       latitudeDelta: Math.max(r.latitudeDelta / 2, 0.005),
       longitudeDelta: Math.max(r.longitudeDelta / 2, 0.005),
     };
-    regionRef.current = next;
-    mapRef.current?.animateToRegion(next, 300);
+
+    regionRef.current = nextRegion;
+    mapRef.current?.animateToRegion(nextRegion, 300);
   };
 
   const zoomOut = () => {
     const r = regionRef.current;
-    const next: Region = {
+
+    const nextRegion: Region = {
       latitude: r.latitude,
       longitude: r.longitude,
       latitudeDelta: Math.min(r.latitudeDelta * 2, 180),
       longitudeDelta: Math.min(r.longitudeDelta * 2, 180),
     };
-    regionRef.current = next;
-    mapRef.current?.animateToRegion(next, 300);
+
+    regionRef.current = nextRegion;
+    mapRef.current?.animateToRegion(nextRegion, 300);
   };
 
   const resetView = () => {
     didInitialFitRef.current = false;
-    mapReadyRef.current = true;
-    layoutReadyRef.current = true;
+    mapReadyRef.current = false;
+    layoutReadyRef.current = false;
     regionRef.current = initialRegion;
+
+    if (Platform.OS === 'android') {
+      setAndroidMapKey(prev => prev + 1);
+      return;
+    }
+
     mapRef.current?.animateToRegion(initialRegion, 400);
 
     setTimeout(() => {
       fitAll(true);
       didInitialFitRef.current = true;
-    }, Platform.OS === 'android' ? 900 : 250);
+    }, 250);
   };
 
   return (
     <View style={styles.root}>
       <MapView
+        key={Platform.OS === 'android' ? `android-map-${androidMapKey}` : 'ios-map'}
         ref={mapRef}
-        style={StyleSheet.absoluteFill}
+        style={StyleSheet.absoluteFillObject}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
         initialRegion={initialRegion}
         moveOnMarkerPress={false}
         toolbarEnabled={false}
         loadingEnabled
+        loadingIndicatorColor={colors.text}
+        loadingBackgroundColor={colors.background}
+        showsCompass={false}
+        showsScale={false}
+        rotateEnabled
+        scrollEnabled
+        zoomEnabled
+        pitchEnabled={false}
         onMapReady={onMapReady}
         onLayout={onMapLayout}
-        onRegionChangeComplete={onRegionChangeComplete}>
+        onRegionChangeComplete={onRegionChangeComplete}
+      >
         {validStructures.map(item => (
           <Marker
             key={item.id}
@@ -255,6 +310,8 @@ const MapScreen = () => {
             }}
             title={item.name}
             description={item.location}
+            pinColor={Platform.OS === 'android' ? '#FFD84D' : undefined}
+            tracksViewChanges={false}
             onPress={() => setSelected(item.raw)}
           />
         ))}
@@ -289,7 +346,8 @@ const MapScreen = () => {
         visible={!!selected}
         transparent
         animationType="fade"
-        onRequestClose={() => setSelected(null)}>
+        onRequestClose={() => setSelected(null)}
+      >
         <Pressable style={styles.backdrop} onPress={() => setSelected(null)}>
           <Pressable style={styles.cardWrap} onPress={() => {}}>
             {selected ? (
@@ -299,7 +357,8 @@ const MapScreen = () => {
                 <TouchableOpacity
                   style={styles.closeBtn}
                   onPress={() => setSelected(null)}
-                  activeOpacity={0.8}>
+                  activeOpacity={0.8}
+                >
                   <Text style={styles.closeText}>✕</Text>
                 </TouchableOpacity>
 
@@ -321,14 +380,16 @@ const MapScreen = () => {
                     <TouchableOpacity
                       activeOpacity={0.9}
                       onPress={goDetails}
-                      style={styles.primaryBtn}>
+                      style={styles.primaryBtn}
+                    >
                       <Text style={styles.primaryBtnText}>Open details</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       activeOpacity={0.9}
                       onPress={share}
-                      style={styles.secondaryBtn}>
+                      style={styles.secondaryBtn}
+                    >
                       <Text style={styles.secondaryBtnText}>➤</Text>
                     </TouchableOpacity>
                   </View>

@@ -1,4 +1,4 @@
-package com.towerworldexplorer
+package com.tower.world.explorer
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
